@@ -36,6 +36,7 @@ async function run() {
     const commentsCollections = dataBase.collection("comment");
     const reportsCollections = dataBase.collection("report");
     const ratingsCollections = dataBase.collection("ratings");
+    const couponCollections = dataBase.collection("coupons");
 
     app.get("/", (req, res) => {
       res.send("TechOrbit Project Root Page!");
@@ -71,6 +72,24 @@ async function run() {
         message: "User created successfully",
         data: result,
       });
+    });
+
+    // single User Get
+
+    app.get("/user/:email", async (req, res) => {
+      const { email } = req.params;
+
+      if (!email) {
+        res.status(404).send({ message: "Email not Found!" });
+      }
+
+      const query = { email };
+      const result = await userCollection.findOne(query);
+
+      if (!result) {
+        res.status(404).send({ message: "User Not Found!" });
+      }
+      res.send(result);
     });
 
     // 🔹 Search users by email regex
@@ -119,7 +138,6 @@ async function run() {
         const skip = (page - 1) * limit;
         const search = req.query.search || "";
 
-        // শুধু pending products
         const query = {
           status: "published",
           ...(search ? { tags: { $regex: search, $options: "i" } } : {}),
@@ -185,13 +203,11 @@ async function run() {
         res.send(result);
       } catch (error) {
         console.error("Error adding product:", error);
-        res
-          .status(500)
-          .json({
-            success: false,
-            message: "Server Error",
-            error: error.message,
-          });
+        res.status(500).json({
+          success: false,
+          message: "Server Error",
+          error: error.message,
+        });
       }
     });
 
@@ -202,7 +218,10 @@ async function run() {
       try {
         const query = { status: "pending" };
 
-        const products = await productCollections.find(query).sort({createdAt: -1}).toArray();
+        const products = await productCollections
+          .find(query)
+          .sort({ createdAt: -1 })
+          .toArray();
 
         res.status(200).json({
           success: true,
@@ -510,7 +529,6 @@ async function run() {
       try {
         const { productId } = req.params;
 
-        // ওই product আছে কিনা check করো
         const product = await productCollections.findOne({
           _id: new ObjectId(productId),
         });
@@ -522,7 +540,6 @@ async function run() {
           });
         }
 
-        // ওই product এর সব রিপোর্ট বের করো
         const reports = await reportsCollections
           .find({ productId })
           .sort({ createdAt: -1 })
@@ -689,6 +706,147 @@ async function run() {
       } catch (error) {
         console.error("Error deleting account:", error);
         res.status(500).json({ success: false, message: "Server Error" });
+      }
+    });
+
+    // 🟢 COUPON API ROUTES
+
+    app.post("/coupon", async (req, res) => {
+      try {
+        const { code, type, value, expiryDate, usageLimit } = req.body;
+
+        //  validation
+        if (!code || !type || !value || !expiryDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Missing required fields",
+          });
+        }
+
+        // Check if coupon code already exists
+        const existing = await couponCollections.findOne({ code });
+        if (existing) {
+          return res.status(400).json({
+            success: false,
+            message: "Coupon code already exists",
+          });
+        }
+
+        // Create new coupon
+        const newCoupon = {
+          code,
+          type,
+          value,
+          expiryDate: new Date(expiryDate),
+          usageLimit: usageLimit || null,
+          usedCount: 0,
+          createdAt: new Date(),
+        };
+
+        const result = await couponCollections.insertOne(newCoupon);
+        res.status(201).json({
+          success: true,
+          message: "Coupon created successfully",
+          data: result,
+        });
+      } catch (error) {
+        console.error("Error creating coupon:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to create coupon",
+          error: error.message,
+        });
+      }
+    });
+
+    // 🟡 GET ALL COUPONS
+    app.get("/coupons", async (req, res) => {
+      try {
+        const coupons = await couponCollections
+          .find()
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.status(200).json(coupons);
+      } catch (error) {
+        console.error("Error fetching coupons:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to fetch coupons",
+          error: error.message,
+        });
+      }
+    });
+
+    // 🔵 DELETE COUPON
+    app.delete("/coupons/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        const result = await couponCollections.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).json({
+            success: false,
+            message: "Coupon not found",
+          });
+        }
+
+        res.status(200).json({
+          success: true,
+          message: "Coupon deleted successfully",
+        });
+      } catch (error) {
+        console.error("Error deleting coupon:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to delete coupon",
+          error: error.message,
+        });
+      }
+    });
+
+    app.post("/coupons/verify", async (req, res) => {
+      try {
+        const { code } = req.body;
+        const coupon = await couponCollections.findOne({ code });
+
+        if (!coupon) {
+          return res.status(404).json({
+            success: false,
+            message: "Invalid coupon code",
+          });
+        }
+
+        const now = new Date();
+        if (new Date(coupon.expiryDate) < now) {
+          return res.status(400).json({
+            success: false,
+            message: "Coupon has expired",
+          });
+        }
+
+        if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
+          return res.status(400).json({
+            success: false,
+            message: "Coupon usage limit reached",
+          });
+        }
+
+        res.status(200).json({
+          success: true,
+          message: "Coupon is valid",
+          data: coupon,
+        });
+      } catch (error) {
+        console.error("Error verifying coupon:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to verify coupon",
+          error: error.message,
+        });
       }
     });
 
