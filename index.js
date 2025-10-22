@@ -2,6 +2,7 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 require("dotenv").config();
+const admin = require("firebase-admin");
 const port = process.env.PORT || 3000;
 
 // middleWares
@@ -14,6 +15,14 @@ app.use(
 app.use(express.json());
 const stripe = require("stripe")(process.env.PAYMENT_GATEWAY_KEY);
 // console.log("Stripe key:", process.env.PAYMENT_GATEWAY_KEY);
+
+// Firebase Admin Key
+
+const serviceAccount = require("./techOrbit-firebase-admin-key.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const { database } = require("firebase-admin");
@@ -39,6 +48,118 @@ async function run() {
     const reportsCollections = dataBase.collection("report");
     const ratingsCollections = dataBase.collection("ratings");
     const couponCollections = dataBase.collection("coupons");
+
+    // Middleware
+
+    const VerifyFBToken = async (req, res, next) => {
+      const authHeader = req?.headers.authorization;
+      if (!authHeader) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+
+      const Token = authHeader.split(" ")[1];
+      if (!Token) {
+        return res.status(401).send({ message: "unauthorize access" });
+      }
+
+      // verify Token
+
+      try {
+        const decoded = await admin.auth().verifyIdToken(Token);
+        req.decoded = decoded;
+        next();
+      } catch (err) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+    };
+
+    // 🛡️ verifyParamsEmail.js
+    const verifyParamsEmail = async (req, res, next) => {
+      try {
+        if (req.params.email !== req.decoded?.email) {
+          return res.status(403).json({ message: "Forbidden access!" });
+        }
+        next();
+      } catch (error) {
+        console.error("verifyParamsEmail Error:", error);
+        res.status(500).json({ message: "Internal server error!" });
+      }
+    };
+
+
+    const verifyQueryEmail = async (req, res, next) => {
+      try {
+        if (req.query.email !== req.decoded?.email) {
+          return res.status(403).json({ message: "Forbidden access!" });
+        }
+        next();
+      } catch (error) {
+        console.error("verifyParamsEmail Error:", error);
+        res.status(500).json({ message: "Internal server error!" });
+      }
+    };
+
+    // 🛡️ AdminAndModeratorVerify.js
+    const AdminAndModeratorVerify = async (req, res, next) => {
+      try {
+        const email = req.decoded?.email;
+
+        if (!email) {
+          return res
+            .status(401)
+            .json({ message: "Unauthorized: Email not found in token!" });
+        }
+
+        const emailRole = await userCollection.findOne({ email });
+
+        if (!emailRole) {
+          return res.status(404).json({ message: "User not found!" });
+        }
+
+        if (!["admin", "moderator"].includes(emailRole.role)) {
+          return res
+            .status(403)
+            .json({
+              message: "Access denied! Only admin or moderator allowed.",
+            });
+        }
+
+        next();
+      } catch (error) {
+        console.error("AdminAndModeratorVerify Error:", error);
+        res.status(500).json({ message: "Internal server error!" });
+      }
+    };
+
+    // 🛡️ AdminVerify.js
+    const AdminVerify = async (req, res, next) => {
+      try {
+        const email = req.decoded?.email;
+
+        if (!email) {
+          return res
+            .status(401)
+            .json({ message: "Unauthorized: Email not found in token!" });
+        }
+
+        const adminRole = await userCollection.findOne({ email });
+
+        if (!adminRole) {
+          return res.status(404).json({ message: "User not found!" });
+        }
+
+        if (adminRole.role !== "admin") {
+          return res
+            .status(403)
+            .json({ message: "Access denied! Admins only." });
+        }
+
+        next();
+      } catch (error) {
+        console.error("AdminVerify Error:", error);
+        res.status(500).json({ message: "Internal server error!" });
+      }
+    };
 
     app.get("/", (req, res) => {
       res.send("TechOrbit Project Root Page!");
@@ -213,7 +334,7 @@ async function run() {
     // Pending Products
 
     // ✅ Get all pending products
-    app.get("/products/pending", async (req, res) => {
+    app.get("/products/pending", VerifyFBToken, async (req, res) => {
       try {
         const query = { status: "pending" };
 
@@ -914,13 +1035,11 @@ async function run() {
         });
       } catch (error) {
         console.error("Payment success error:", error);
-        res
-          .status(500)
-          .json({
-            success: false,
-            message: "Server error",
-            error: error.message,
-          });
+        res.status(500).json({
+          success: false,
+          message: "Server error",
+          error: error.message,
+        });
       }
     });
 
