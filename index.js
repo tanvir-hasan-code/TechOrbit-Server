@@ -199,7 +199,7 @@ async function run() {
 
     // single User Get
 
-    app.get("/user/:email", async (req, res) => {
+    app.get("/user/:email", VerifyFBToken, verifyParamsEmail, async (req, res) => {
       const { email } = req.params;
 
       if (!email) {
@@ -216,7 +216,7 @@ async function run() {
     });
 
     // 🔹 Search users by email regex
-    app.get("/users", async (req, res) => {
+    app.get("/users", VerifyFBToken, AdminVerify, async (req, res) => {
       try {
         const email = req.query.email;
         const query = email ? { email: { $regex: email, $options: "i" } } : {};
@@ -229,7 +229,7 @@ async function run() {
     });
 
     // 🔹 Update role
-    app.patch("/users/:email/role", async (req, res) => {
+    app.patch("/users/:email/role",VerifyFBToken, AdminVerify, async (req, res) => {
       try {
         const email = req.params.email;
 
@@ -282,15 +282,20 @@ async function run() {
       }
     });
 
-    app.post("/product", async (req, res) => {
+    app.post("/product",VerifyFBToken, async (req, res) => {
       try {
         const productData = req.body;
         const ownerEmail = productData.ownerEmail;
+
 
         if (!ownerEmail) {
           return res
             .status(400)
             .json({ success: false, message: "Owner email required" });
+        }
+
+        if (ownerEmail !== req.decoded?.email) {
+          return res.status(403).send({message: "forbidden access"})
         }
 
         const user = await userCollection.findOne({ email: ownerEmail });
@@ -334,7 +339,7 @@ async function run() {
     // Pending Products
 
     // ✅ Get all pending products
-    app.get("/products/pending", VerifyFBToken, async (req, res) => {
+    app.get("/products/pending", VerifyFBToken, AdminAndModeratorVerify, async (req, res) => {
       try {
         const query = { status: "pending" };
 
@@ -360,7 +365,7 @@ async function run() {
     });
 
     // ✅ Update product status (publish or decline)
-    app.patch("/product/:id/status", async (req, res) => {
+    app.patch("/product/:id/status", VerifyFBToken, AdminAndModeratorVerify, async (req, res) => {
       try {
         const { id } = req.params;
         const { status } = req.body;
@@ -409,7 +414,7 @@ async function run() {
 
     // My Products API
 
-    app.get("/product/myProducts/:email", async (req, res) => {
+    app.get("/product/myProducts/:email", VerifyFBToken, verifyParamsEmail, async (req, res) => {
       const { email } = req.params;
 
       if (!email) {
@@ -428,7 +433,7 @@ async function run() {
     });
 
     // ✅ PATCH - Update Product Info
-    app.patch("/product/update/:id", async (req, res) => {
+    app.patch("/product/update/:id", VerifyFBToken, async (req, res) => {
       try {
         const { id } = req.params;
         const updateData = req.body;
@@ -463,7 +468,7 @@ async function run() {
     });
 
     // ✅ Delete Product by ID
-    app.delete("/product/:id", async (req, res) => {
+    app.delete("/product/:id", VerifyFBToken, async (req, res) => {
       try {
         const { id } = req.params;
         const result = await productCollections.deleteOne({
@@ -487,7 +492,7 @@ async function run() {
     });
 
     // Get all comments for a product
-    app.get("/comments/:id", async (req, res) => {
+    app.get("/comments/:id",VerifyFBToken, async (req, res) => {
       const comments = await commentsCollections
         .find({ productId: req.params.id })
         .sort({ createdAt: -1 })
@@ -503,7 +508,7 @@ async function run() {
     });
 
     // ✅ PATCH - Like / Dislike toggle
-    app.patch("/product/vote/:id", async (req, res) => {
+    app.patch("/product/vote/:id", VerifyFBToken, async (req, res) => {
       const { userEmail, type } = req.body;
       const id = req.params.id;
 
@@ -541,7 +546,7 @@ async function run() {
     });
 
     // ✅ PATCH - Report toggle (save/remove from reports collection)
-    app.patch("/product/report/:id", async (req, res) => {
+    app.patch("/product/report/:id", VerifyFBToken, async (req, res) => {
       const { userEmail, userName, userPhoto } = req.body;
       const id = req.params.id;
 
@@ -583,7 +588,7 @@ async function run() {
 
     // ✅ Get all reports for a specific product
 
-    app.get("/reported-products", async (req, res) => {
+    app.get("/reported-products", VerifyFBToken, AdminAndModeratorVerify, async (req, res) => {
       try {
         const reportedProducts = await reportsCollections
           .aggregate([
@@ -645,7 +650,7 @@ async function run() {
     });
 
     // ✅ Get Reports by Product ID
-    app.get("/reported-products/:productId", async (req, res) => {
+    app.get("/reported-products/:productId", VerifyFBToken, AdminAndModeratorVerify, async (req, res) => {
       try {
         const { productId } = req.params;
 
@@ -694,7 +699,7 @@ async function run() {
 
     // Rating Collection
     // Get average rating of a product
-    app.get("/ratings/:id", async (req, res) => {
+    app.get("/ratings/:id", VerifyFBToken, async (req, res) => {
       const productId = req.params.id;
       const ratings = await ratingsCollections.find({ productId }).toArray();
       const average =
@@ -750,7 +755,7 @@ async function run() {
     // 🧩 ==========================
 
     // ✅ GET: get user settings by email
-    app.get("/users/settings/:email", async (req, res) => {
+    app.get("/users/settings/:email", VerifyFBToken, verifyParamsEmail, async (req, res) => {
       try {
         const { email } = req.params;
         if (!email) return res.status(400).json({ message: "Email required" });
@@ -773,7 +778,7 @@ async function run() {
     });
 
     // ✅ PUT: update user settings
-    app.put("/users/settings/:email", async (req, res) => {
+    app.put("/users/settings/:email", VerifyFBToken, verifyParamsEmail, async (req, res) => {
       try {
         const { email } = req.params;
         const { theme, notifications, privacy, name } = req.body;
@@ -810,7 +815,7 @@ async function run() {
     });
 
     // ✅ DELETE: delete user account
-    app.delete("/users/:email", async (req, res) => {
+    app.delete("/users/:email",VerifyFBToken, verifyParamsEmail, async (req, res) => {
       try {
         const { email } = req.params;
         const result = await userCollection.deleteOne({ email });
@@ -831,7 +836,7 @@ async function run() {
 
     // 🟢 COUPON API ROUTES
 
-    app.post("/coupon", async (req, res) => {
+    app.post("/coupon", VerifyFBToken, AdminVerify, async (req, res) => {
       try {
         const { code, type, value, expiryDate, usageLimit } = req.body;
 
@@ -899,7 +904,7 @@ async function run() {
     });
 
     // 🔵 DELETE COUPON
-    app.delete("/coupons/:id", async (req, res) => {
+    app.delete("/coupons/:id", VerifyFBToken, AdminVerify, async (req, res) => {
       try {
         const { id } = req.params;
 
@@ -972,7 +977,7 @@ async function run() {
 
     // payment API
 
-    app.post("/create-payment-intent", async (req, res) => {
+    app.post("/create-payment-intent", VerifyFBToken, async (req, res) => {
       const { amount } = req.body;
       const paymentIntent = await stripe.paymentIntents.create({
         amount,
@@ -982,7 +987,7 @@ async function run() {
     });
 
     // ✅ Payment Success API
-    app.post("/payment-success", async (req, res) => {
+    app.post("/payment-success", VerifyFBToken, async (req, res) => {
       try {
         const { email, couponCode } = req.body;
 
