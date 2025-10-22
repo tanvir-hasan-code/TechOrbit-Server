@@ -12,6 +12,8 @@ app.use(
   })
 );
 app.use(express.json());
+const stripe = require("stripe")(process.env.PAYMENT_GATEWAY_KEY);
+// console.log("Stripe key:", process.env.PAYMENT_GATEWAY_KEY);
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const { database } = require("firebase-admin");
@@ -170,7 +172,6 @@ async function run() {
             .json({ success: false, message: "Owner email required" });
         }
 
-        // ইউজার বের করো
         const user = await userCollection.findOne({ email: ownerEmail });
 
         if (!user) {
@@ -179,7 +180,6 @@ async function run() {
             .json({ success: false, message: "User not found" });
         }
 
-        // যদি user verified না হয় (free user)
         if (!user.isVerified) {
           const productCount = await productCollections.countDocuments({
             ownerEmail,
@@ -194,7 +194,6 @@ async function run() {
           }
         }
 
-        // ✅ Product insert
         const result = await productCollections.insertOne({
           ...productData,
           createdAt: new Date(),
@@ -847,6 +846,81 @@ async function run() {
           message: "Failed to verify coupon",
           error: error.message,
         });
+      }
+    });
+
+    // payment API
+
+    app.post("/create-payment-intent", async (req, res) => {
+      const { amount } = req.body;
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount,
+        currency: "usd",
+      });
+      res.send({ clientSecret: paymentIntent.client_secret });
+    });
+
+    // ✅ Payment Success API
+    app.post("/payment-success", async (req, res) => {
+      try {
+        const { email, couponCode } = req.body;
+
+        if (!email) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Email required" });
+        }
+
+        // 1️⃣ Update user isVerified = true
+        const userUpdate = await userCollection.updateOne(
+          { email },
+          { $set: { isVerified: true } }
+        );
+
+        if (userUpdate.matchedCount === 0) {
+          return res
+            .status(404)
+            .json({ success: false, message: "User not found" });
+        }
+
+        // 2️⃣ Handle coupon update if couponCode exists
+        if (couponCode) {
+          const coupon = await couponCollections.findOne({ code: couponCode });
+
+          if (!coupon) {
+            return res
+              .status(404)
+              .json({ success: false, message: "Coupon not found" });
+          }
+
+          // Check usage limit
+          if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
+            return res
+              .status(400)
+              .json({ success: false, message: "Coupon usage limit reached" });
+          }
+
+          // Increment usedCount
+          await couponCollections.updateOne(
+            { code: couponCode },
+            { $inc: { usedCount: 1 } }
+          );
+        }
+
+        res.status(200).json({
+          success: true,
+          message:
+            "Payment processed successfully, user verified, coupon updated",
+        });
+      } catch (error) {
+        console.error("Payment success error:", error);
+        res
+          .status(500)
+          .json({
+            success: false,
+            message: "Server error",
+            error: error.message,
+          });
       }
     });
 
