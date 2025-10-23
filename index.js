@@ -86,7 +86,6 @@ async function run() {
       }
     };
 
-
     const verifyQueryEmail = async (req, res, next) => {
       try {
         if (req.query.email !== req.decoded?.email) {
@@ -117,11 +116,9 @@ async function run() {
         }
 
         if (!["admin", "moderator"].includes(emailRole.role)) {
-          return res
-            .status(403)
-            .json({
-              message: "Access denied! Only admin or moderator allowed.",
-            });
+          return res.status(403).json({
+            message: "Access denied! Only admin or moderator allowed.",
+          });
         }
 
         next();
@@ -199,21 +196,26 @@ async function run() {
 
     // single User Get
 
-    app.get("/user/:email", VerifyFBToken, verifyParamsEmail, async (req, res) => {
-      const { email } = req.params;
+    app.get(
+      "/user/:email",
+      VerifyFBToken,
+      verifyParamsEmail,
+      async (req, res) => {
+        const { email } = req.params;
 
-      if (!email) {
-        res.status(404).send({ message: "Email not Found!" });
+        if (!email) {
+          res.status(404).send({ message: "Email not Found!" });
+        }
+
+        const query = { email };
+        const result = await userCollection.findOne(query);
+
+        if (!result) {
+          res.status(404).send({ message: "User Not Found!" });
+        }
+        res.send(result);
       }
-
-      const query = { email };
-      const result = await userCollection.findOne(query);
-
-      if (!result) {
-        res.status(404).send({ message: "User Not Found!" });
-      }
-      res.send(result);
-    });
+    );
 
     // 🔹 Search users by email regex
     app.get("/users", VerifyFBToken, AdminVerify, async (req, res) => {
@@ -229,28 +231,33 @@ async function run() {
     });
 
     // 🔹 Update role
-    app.patch("/users/:email/role",VerifyFBToken, AdminVerify, async (req, res) => {
-      try {
-        const email = req.params.email;
+    app.patch(
+      "/users/:email/role",
+      VerifyFBToken,
+      AdminVerify,
+      async (req, res) => {
+        try {
+          const email = req.params.email;
 
-        const { role } = req.body;
-        const filter = { email };
-        const update = { $set: { role } };
+          const { role } = req.body;
+          const filter = { email };
+          const update = { $set: { role } };
 
-        const result = await userCollection.updateOne(filter, update);
+          const result = await userCollection.updateOne(filter, update);
 
-        if (result.matchedCount === 0) {
-          return res
-            .status(404)
-            .json({ success: false, message: "User not found" });
+          if (result.matchedCount === 0) {
+            return res
+              .status(404)
+              .json({ success: false, message: "User not found" });
+          }
+
+          res.json(result);
+        } catch (err) {
+          console.error(err);
+          res.status(500).json({ success: false, message: "Server error" });
         }
-
-        res.json(result);
-      } catch (err) {
-        console.error(err);
-        res.status(500).json({ success: false, message: "Server error" });
       }
-    });
+    );
 
     // Products API
     // GET /products?page=1&limit=6&search=video
@@ -282,11 +289,97 @@ async function run() {
       }
     });
 
-    app.post("/product",VerifyFBToken, async (req, res) => {
+    // Featured Products APIs
+    // GET all published products
+    app.get(
+      "/products/featured",
+      VerifyFBToken,
+      AdminAndModeratorVerify,
+      async (req, res) => {
+        try {
+          const products = await productCollections
+            .find({ status: "published" })
+            .sort({ createdAt: -1 })
+            .toArray();
+
+          res.status(200).json({
+            success: true,
+            count: products.length,
+            data: products,
+          });
+        } catch (error) {
+          console.error("Error fetching published products:", error);
+          res.status(500).json({
+            success: false,
+            message: "Failed to fetch published products",
+            error: error.message,
+          });
+        }
+      }
+    );
+
+    // Featured Products Get API From UI
+    app.get("/featured-products", async (req, res) => {
+      try {
+        const products = await productCollections
+          .find({ isFeatured: true })
+          .sort({ createdAt: -1 })
+          .limit(6)
+          .toArray();
+        res.send({ success: true, data: products });
+      } catch (err) {
+        res.status(500).send({ success: false, message: err.message });
+      }
+    });
+
+    // Toggle Featured
+    app.patch(
+      "/products/featured/:id",
+      VerifyFBToken,
+      AdminAndModeratorVerify,
+      async (req, res) => {
+        try {
+          const { id } = req.params;
+          const { isFeatured } = req.body; // true or false
+
+          if (typeof isFeatured !== "boolean") {
+            return res.status(400).json({
+              success: false,
+              message: "isFeatured must be boolean",
+            });
+          }
+
+          const filter = { _id: new ObjectId(id) };
+          const update = { $set: { isFeatured } };
+
+          const result = await productCollections.updateOne(filter, update);
+
+          if (result.matchedCount === 0) {
+            return res
+              .status(404)
+              .json({ success: false, message: "Product not found" });
+          }
+
+          res.status(200).json({
+            success: true,
+            message: `Product isFeatured set to ${isFeatured}`,
+            data: { productId: id, isFeatured },
+          });
+        } catch (error) {
+          console.error("Error updating isFeatured:", error);
+          res.status(500).json({
+            success: false,
+            message: "Failed to update isFeatured",
+            error: error.message,
+          });
+        }
+      }
+    );
+
+    app.post("/product", VerifyFBToken, async (req, res) => {
       try {
         const productData = req.body;
         const ownerEmail = productData.ownerEmail;
-
 
         if (!ownerEmail) {
           return res
@@ -295,7 +388,7 @@ async function run() {
         }
 
         if (ownerEmail !== req.decoded?.email) {
-          return res.status(403).send({message: "forbidden access"})
+          return res.status(403).send({ message: "forbidden access" });
         }
 
         const user = await userCollection.findOne({ email: ownerEmail });
@@ -339,63 +432,73 @@ async function run() {
     // Pending Products
 
     // ✅ Get all pending products
-    app.get("/products/pending", VerifyFBToken, AdminAndModeratorVerify, async (req, res) => {
-      try {
-        const query = { status: "pending" };
+    app.get(
+      "/products/pending",
+      VerifyFBToken,
+      AdminAndModeratorVerify,
+      async (req, res) => {
+        try {
+          const query = { status: "pending" };
 
-        const products = await productCollections
-          .find(query)
-          .sort({ createdAt: -1 })
-          .toArray();
+          const products = await productCollections
+            .find(query)
+            .sort({ createdAt: -1 })
+            .toArray();
 
-        res.status(200).json({
-          success: true,
-          message: "Pending products fetched successfully",
-          count: products.length,
-          data: products,
-        });
-      } catch (error) {
-        console.error("Error fetching pending products:", error);
-        res.status(500).json({
-          success: false,
-          message: "Failed to fetch pending products",
-          error: error.message,
-        });
+          res.status(200).json({
+            success: true,
+            message: "Pending products fetched successfully",
+            count: products.length,
+            data: products,
+          });
+        } catch (error) {
+          console.error("Error fetching pending products:", error);
+          res.status(500).json({
+            success: false,
+            message: "Failed to fetch pending products",
+            error: error.message,
+          });
+        }
       }
-    });
+    );
 
     // ✅ Update product status (publish or decline)
-    app.patch("/product/:id/status", VerifyFBToken, AdminAndModeratorVerify, async (req, res) => {
-      try {
-        const { id } = req.params;
-        const { status } = req.body;
+    app.patch(
+      "/product/:id/status",
+      VerifyFBToken,
+      AdminAndModeratorVerify,
+      async (req, res) => {
+        try {
+          const { id } = req.params;
+          const { status } = req.body;
 
-        if (!["pending", "published", "declined"].includes(status)) {
-          return res
-            .status(400)
-            .json({ success: false, message: "Invalid status" });
+          if (!["pending", "published", "declined"].includes(status)) {
+            return res
+              .status(400)
+              .json({ success: false, message: "Invalid status" });
+          }
+
+          const filter = { _id: new ObjectId(id) };
+          const update = { $set: { status } };
+
+          const result = await productCollections.updateOne(filter, update);
+
+          if (result.matchedCount === 0) {
+            return res
+              .status(404)
+              .json({ success: false, message: "Product not found" });
+          }
+
+          res.json({
+            success: true,
+            message: `Product status updated to ${status}`,
+          });
+        } catch (err) {
+          console.error(err);
+          res.status(500).json({ success: false, message: "Server error" });
         }
-
-        const filter = { _id: new ObjectId(id) };
-        const update = { $set: { status } };
-
-        const result = await productCollections.updateOne(filter, update);
-
-        if (result.matchedCount === 0) {
-          return res
-            .status(404)
-            .json({ success: false, message: "Product not found" });
-        }
-
-        res.json({
-          success: true,
-          message: `Product status updated to ${status}`,
-        });
-      } catch (err) {
-        console.error(err);
-        res.status(500).json({ success: false, message: "Server error" });
       }
-    });
+    );
 
     // Products Details page and Comment API
 
@@ -414,23 +517,28 @@ async function run() {
 
     // My Products API
 
-    app.get("/product/myProducts/:email", VerifyFBToken, verifyParamsEmail, async (req, res) => {
-      const { email } = req.params;
+    app.get(
+      "/product/myProducts/:email",
+      VerifyFBToken,
+      verifyParamsEmail,
+      async (req, res) => {
+        const { email } = req.params;
 
-      if (!email) {
-        res.status(403).status({ message: "Email Not Found!" });
+        if (!email) {
+          res.status(403).status({ message: "Email Not Found!" });
+        }
+        const products = await productCollections
+          .find({ ownerEmail: email })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        if (!products) {
+          res.status(404).send({ message: "Data Not Found!" });
+        }
+
+        res.send(products);
       }
-      const products = await productCollections
-        .find({ ownerEmail: email })
-        .sort({ createdAt: -1 })
-        .toArray();
-
-      if (!products) {
-        res.status(404).send({ message: "Data Not Found!" });
-      }
-
-      res.send(products);
-    });
+    );
 
     // ✅ PATCH - Update Product Info
     app.patch("/product/update/:id", VerifyFBToken, async (req, res) => {
@@ -492,7 +600,7 @@ async function run() {
     });
 
     // Get all comments for a product
-    app.get("/comments/:id",VerifyFBToken, async (req, res) => {
+    app.get("/comments/:id", VerifyFBToken, async (req, res) => {
       const comments = await commentsCollections
         .find({ productId: req.params.id })
         .sort({ createdAt: -1 })
@@ -588,116 +696,137 @@ async function run() {
 
     // ✅ Get all reports for a specific product
 
-    app.get("/reported-products", VerifyFBToken, AdminAndModeratorVerify, async (req, res) => {
-      try {
-        const reportedProducts = await reportsCollections
-          .aggregate([
-            { $sort: { createdAt: -1 } },
-            {
-              $group: {
-                _id: "$productId", // unique productId
-                latestReport: { $last: "$$ROOT" },
+    app.get(
+      "/reported-products",
+      VerifyFBToken,
+      AdminAndModeratorVerify,
+      async (req, res) => {
+        try {
+          const reportedProducts = await reportsCollections
+            .aggregate([
+              { $sort: { createdAt: -1 } },
+              {
+                $group: {
+                  _id: "$productId", // unique productId
+                  latestReport: { $last: "$$ROOT" },
+                },
               },
-            },
-            {
-              $project: {
-                productId: "$_id",
-                _id: 0,
+              {
+                $project: {
+                  productId: "$_id",
+                  _id: 0,
+                },
               },
-            },
-          ])
-          .toArray();
+            ])
+            .toArray();
 
-        if (reportedProducts.length === 0) {
-          return res.status(200).json({
+          if (reportedProducts.length === 0) {
+            return res.status(200).json({
+              success: true,
+              message: "No reported products found",
+              data: [],
+            });
+          }
+
+          const productIds = reportedProducts.map(
+            (r) => new ObjectId(r.productId)
+          );
+
+          const products = await productCollections
+            .find({ _id: { $in: productIds } })
+            .project({
+              productName: 1,
+              productImage: 1,
+              ownerName: 1,
+              ownerEmail: 1,
+              tags: 1,
+              status: 1,
+              createdAt: 1,
+            })
+            .toArray();
+
+          res.status(200).json({
             success: true,
-            message: "No reported products found",
-            data: [],
+            message: "Reported products fetched successfully",
+            count: products.length,
+            data: products,
+          });
+        } catch (error) {
+          console.error("Error fetching reported products:", error);
+          res.status(500).json({
+            success: false,
+            message: "Failed to fetch reported products",
+            error: error.message,
           });
         }
-
-        const productIds = reportedProducts.map(
-          (r) => new ObjectId(r.productId)
-        );
-
-        const products = await productCollections
-          .find({ _id: { $in: productIds } })
-          .project({
-            productName: 1,
-            productImage: 1,
-            ownerName: 1,
-            ownerEmail: 1,
-            tags: 1,
-            status: 1,
-            createdAt: 1,
-          })
-          .toArray();
-
-        res.status(200).json({
-          success: true,
-          message: "Reported products fetched successfully",
-          count: products.length,
-          data: products,
-        });
-      } catch (error) {
-        console.error("Error fetching reported products:", error);
-        res.status(500).json({
-          success: false,
-          message: "Failed to fetch reported products",
-          error: error.message,
-        });
       }
-    });
+    );
 
     // ✅ Get Reports by Product ID
-    app.get("/reported-products/:productId", VerifyFBToken, AdminAndModeratorVerify, async (req, res) => {
-      try {
-        const { productId } = req.params;
+    app.get(
+      "/reported-products/:productId",
+      VerifyFBToken,
+      AdminAndModeratorVerify,
+      async (req, res) => {
+        try {
+          const { productId } = req.params;
 
-        const product = await productCollections.findOne({
-          _id: new ObjectId(productId),
-        });
+          const product = await productCollections.findOne({
+            _id: new ObjectId(productId),
+          });
 
-        if (!product) {
-          return res.status(404).json({
+          if (!product) {
+            return res.status(404).json({
+              success: false,
+              message: "Product not found",
+            });
+          }
+
+          const reports = await reportsCollections
+            .find({ productId })
+            .sort({ createdAt: -1 })
+            .project({
+              userName: 1,
+              userEmail: 1,
+              userPhoto: 1,
+              createdAt: 1,
+            })
+            .toArray();
+
+          res.status(200).json({
+            success: true,
+            message: "Reports fetched successfully",
+            product: {
+              _id: product._id,
+              productName: product.productName,
+              productImage: product.productImage,
+            },
+            count: reports.length,
+            data: reports,
+          });
+        } catch (error) {
+          console.error("Error fetching product reports:", error);
+          res.status(500).json({
             success: false,
-            message: "Product not found",
+            message: "Failed to fetch product reports",
+            error: error.message,
           });
         }
-
-        const reports = await reportsCollections
-          .find({ productId })
-          .sort({ createdAt: -1 })
-          .project({
-            userName: 1,
-            userEmail: 1,
-            userPhoto: 1,
-            createdAt: 1,
-          })
-          .toArray();
-
-        res.status(200).json({
-          success: true,
-          message: "Reports fetched successfully",
-          product: {
-            _id: product._id,
-            productName: product.productName,
-            productImage: product.productImage,
-          },
-          count: reports.length,
-          data: reports,
-        });
-      } catch (error) {
-        console.error("Error fetching product reports:", error);
-        res.status(500).json({
-          success: false,
-          message: "Failed to fetch product reports",
-          error: error.message,
-        });
       }
+    );
+
+    app.get("/product/ratings/:id", async (req, res) => {
+      const id = req.params.id;
+
+      if (!id) {
+        return res.status(404).send({ message: "Id is not fount!" });
+      }
+      const filter = { productId: id };
+
+      const result = await ratingsCollections.find(filter).toArray();
+      res.send(result);
     });
 
-    // Rating Collection
     // Get average rating of a product
     app.get("/ratings/:id", VerifyFBToken, async (req, res) => {
       const productId = req.params.id;
@@ -755,84 +884,101 @@ async function run() {
     // 🧩 ==========================
 
     // ✅ GET: get user settings by email
-    app.get("/users/settings/:email", VerifyFBToken, verifyParamsEmail, async (req, res) => {
-      try {
-        const { email } = req.params;
-        if (!email) return res.status(400).json({ message: "Email required" });
+    app.get(
+      "/users/settings/:email",
+      VerifyFBToken,
+      verifyParamsEmail,
+      async (req, res) => {
+        try {
+          const { email } = req.params;
+          if (!email)
+            return res.status(400).json({ message: "Email required" });
 
-        const user = await userCollection.findOne({ email });
-        if (!user) return res.status(404).json({ message: "User not found" });
+          const user = await userCollection.findOne({ email });
+          if (!user) return res.status(404).json({ message: "User not found" });
 
-        res.status(200).json({
-          success: true,
-          message: "Settings fetched successfully",
-          theme: user.settings?.theme || "light",
-          notifications: user.settings?.notifications ?? true,
-          privacy: user.settings?.privacy || "public",
-          name: user.name || "",
-        });
-      } catch (error) {
-        console.error("Error fetching settings:", error);
-        res.status(500).json({ success: false, message: "Server Error" });
+          res.status(200).json({
+            success: true,
+            message: "Settings fetched successfully",
+            theme: user.settings?.theme || "light",
+            notifications: user.settings?.notifications ?? true,
+            privacy: user.settings?.privacy || "public",
+            name: user.name || "",
+          });
+        } catch (error) {
+          console.error("Error fetching settings:", error);
+          res.status(500).json({ success: false, message: "Server Error" });
+        }
       }
-    });
+    );
 
     // ✅ PUT: update user settings
-    app.put("/users/settings/:email", VerifyFBToken, verifyParamsEmail, async (req, res) => {
-      try {
-        const { email } = req.params;
-        const { theme, notifications, privacy, name } = req.body;
+    app.put(
+      "/users/settings/:email",
+      VerifyFBToken,
+      verifyParamsEmail,
+      async (req, res) => {
+        try {
+          const { email } = req.params;
+          const { theme, notifications, privacy, name } = req.body;
 
-        if (!email)
-          return res
-            .status(400)
-            .json({ success: false, message: "Email required" });
+          if (!email)
+            return res
+              .status(400)
+              .json({ success: false, message: "Email required" });
 
-        const filter = { email };
-        const update = {
-          $set: {
-            name,
-            "settings.theme": theme,
-            "settings.notifications": notifications,
-            "settings.privacy": privacy,
-            updatedAt: new Date(),
-          },
-        };
+          const filter = { email };
+          const update = {
+            $set: {
+              name,
+              "settings.theme": theme,
+              "settings.notifications": notifications,
+              "settings.privacy": privacy,
+              updatedAt: new Date(),
+            },
+          };
 
-        const result = await userCollection.updateOne(filter, update, {
-          upsert: true,
-        });
+          const result = await userCollection.updateOne(filter, update, {
+            upsert: true,
+          });
 
-        res.status(200).json({
-          success: true,
-          message: "Settings updated successfully",
-          result,
-        });
-      } catch (error) {
-        console.error("Error updating settings:", error);
-        res.status(500).json({ success: false, message: "Server Error" });
+          res.status(200).json({
+            success: true,
+            message: "Settings updated successfully",
+            result,
+          });
+        } catch (error) {
+          console.error("Error updating settings:", error);
+          res.status(500).json({ success: false, message: "Server Error" });
+        }
       }
-    });
+    );
 
     // ✅ DELETE: delete user account
-    app.delete("/users/:email",VerifyFBToken, verifyParamsEmail, async (req, res) => {
-      try {
-        const { email } = req.params;
-        const result = await userCollection.deleteOne({ email });
+    app.delete(
+      "/users/:email",
+      VerifyFBToken,
+      verifyParamsEmail,
+      async (req, res) => {
+        try {
+          const { email } = req.params;
+          console.log("Hello From Delete", email);
+          const result = await userCollection.deleteOne({ email });
 
-        if (result.deletedCount === 0)
-          return res
-            .status(404)
-            .json({ success: false, message: "User not found" });
+          if (result.deletedCount === 0)
+            return res
+              .status(404)
+              .json({ success: false, message: "User not found" });
 
-        res
-          .status(200)
-          .json({ success: true, message: "Account deleted successfully" });
-      } catch (error) {
-        console.error("Error deleting account:", error);
-        res.status(500).json({ success: false, message: "Server Error" });
+          res
+            .status(200)
+            .json({ success: true, message: "Account deleted successfully" });
+        } catch (error) {
+          console.error("Error deleting account:", error);
+          res.status(500).json({ success: false, message: "Server Error" });
+        }
       }
-    });
+    );
 
     // 🟢 COUPON API ROUTES
 
