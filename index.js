@@ -128,6 +128,24 @@ async function run() {
       }
     };
 
+    const ModeratorVerify = async (req, res, next) => {
+      try {
+        const email = req.decoded?.email;
+        if (!email) return res.status(401).json({ message: "Unauthorized" });
+
+        const user = await userCollection.findOne({ email });
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        if (!["moderator", "admin"].includes(user.role)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+        next();
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Server error" });
+      }
+    };
+
     // 🛡️ AdminVerify.js
     const AdminVerify = async (req, res, next) => {
       try {
@@ -317,7 +335,97 @@ async function run() {
       }
     );
 
-    // Moderator Dashboard APIs 
+    // Moderator Dashboard APIs
+
+    app.get(
+      "/moderator/dashboard-stats",
+      VerifyFBToken,
+      ModeratorVerify,
+      async (req, res) => {
+        try {
+          const totalUsers = await userCollection.countDocuments();
+          const pendingProducts = await productCollections.countDocuments({
+            status: "pending",
+          });
+          const reportedProductsCount = await reportsCollections.distinct(
+            "productId"
+          );
+
+          res.status(200).json({
+            totalUsers,
+            pendingProducts,
+            reportedProducts: reportedProductsCount.length,
+          });
+        } catch (err) {
+          console.error(err);
+          res.status(500).json({ message: "Failed to fetch stats" });
+        }
+      }
+    );
+
+    app.patch(
+      "/moderator/product/:id/status",
+      VerifyFBToken,
+      ModeratorVerify,
+      async (req, res) => {
+        try {
+          const { id } = req.params;
+          const { status } = req.body;
+
+          if (!["published", "declined"].includes(status))
+            return res.status(400).json({ message: "Invalid status" });
+
+          const result = await productCollections.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { status } }
+          );
+
+          if (result.matchedCount === 0)
+            return res.status(404).json({ message: "Product not found" });
+
+          res
+            .status(200)
+            .json({ success: true, message: `Product ${status} successfully` });
+        } catch (err) {
+          console.error(err);
+          res.status(500).json({ message: "Server error" });
+        }
+      }
+    );
+
+    app.get(
+      "/moderator/reported-products/:productId",
+      VerifyFBToken,
+      ModeratorVerify,
+      async (req, res) => {
+        try {
+          const { productId } = req.params;
+          const product = await productCollections.findOne({
+            _id: new ObjectId(productId),
+          });
+          if (!product)
+            return res.status(404).json({ message: "Product not found" });
+
+          const reports = await reportsCollections
+            .find({ productId })
+            .sort({ createdAt: -1 })
+            .project({ userName: 1, userEmail: 1, createdAt: 1, _id: 0 })
+            .toArray();
+
+          res
+            .status(200)
+            .json({
+              success: true,
+              product,
+              count: reports.length,
+              data: reports,
+            });
+        } catch (err) {
+          console.error(err);
+          res.status(500).json({ message: "Server error" });
+        }
+      }
+    );
 
     // Products API
     app.get("/products", async (req, res) => {
