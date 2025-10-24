@@ -259,8 +259,67 @@ async function run() {
       }
     );
 
+    app.get(
+      "/admin/dashboard-stats",
+      VerifyFBToken,
+      AdminAndModeratorVerify,
+      async (req, res) => {
+        try {
+          const totalUsers = await userCollection.countDocuments();
+          const totalModerators = await userCollection.countDocuments({
+            role: "moderator",
+          });
+
+          const productStats = await productCollections
+            .aggregate([
+              {
+                $group: {
+                  _id: "$status",
+                  count: { $sum: 1 },
+                },
+              },
+            ])
+            .toArray();
+
+          // 🔵 Default values
+          let pendingProducts = 0;
+          let rejectedProducts = 0;
+          let publishedProducts = 0;
+
+          productStats.forEach((item) => {
+            if (item._id === "pending") pendingProducts = item.count;
+            else if (item._id === "declined" || item._id === "rejected")
+              rejectedProducts = item.count;
+            else if (item._id === "published" || item._id === "approved")
+              publishedProducts = item.count;
+          });
+
+          const totalProducts =
+            pendingProducts + rejectedProducts + publishedProducts;
+
+          // ✅ Send response
+          res.status(200).json({
+            totalUsers,
+            totalModerators,
+            pendingProducts,
+            rejectedProducts,
+            publishedProducts,
+            totalProducts,
+          });
+        } catch (error) {
+          console.error("Error fetching admin dashboard stats:", error);
+          res.status(500).json({
+            success: false,
+            message: "Failed to fetch dashboard stats",
+            error: error.message,
+          });
+        }
+      }
+    );
+
+    // Moderator Dashboard APIs 
+
     // Products API
-    // GET /products?page=1&limit=6&search=video
     app.get("/products", async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
@@ -328,6 +387,32 @@ async function run() {
           .toArray();
         res.send({ success: true, data: products });
       } catch (err) {
+        res.status(500).send({ success: false, message: err.message });
+      }
+    });
+
+    // ✅ Trending Products get API From UI
+    app.get("/trending-products", async (req, res) => {
+      try {
+        const products = await productCollections
+          .aggregate([
+            {
+              $addFields: {
+                upVotesCount: { $size: { $ifNull: ["$upVotes", []] } },
+              },
+            },
+            {
+              $sort: { upVotesCount: -1, createdAt: -1 },
+            },
+            {
+              $limit: 6,
+            },
+          ])
+          .toArray();
+
+        res.send({ success: true, data: products });
+      } catch (err) {
+        console.error("Error fetching trending products:", err);
         res.status(500).send({ success: false, message: err.message });
       }
     });
