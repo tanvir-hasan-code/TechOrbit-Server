@@ -337,7 +337,32 @@ async function run() {
 
     // Moderator Dashboard APIs
 
-    
+    app.get("/moderator/dashboard-stats", async (req, res) => {
+      try {
+        const totalUsers = await userCollection.countDocuments();
+
+        const pendingProducts = await productCollections.countDocuments({
+          status: "pending",
+        });
+
+        const publishedProducts = await productCollections.countDocuments({
+          status: "published"
+        })
+        const uniqueReportedProducts = await reportsCollections
+          .aggregate([{ $group: { _id: "$productId" } }])
+          .toArray();
+
+        res.status(200).json({
+          totalUsers,
+          pendingProducts,
+          publishedProducts,
+          reportedProducts: uniqueReportedProducts.length,
+        });
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to fetch stats" });
+      }
+    });
 
     // Products API
     app.get("/products", async (req, res) => {
