@@ -4,11 +4,15 @@ const cors = require("cors");
 require("dotenv").config();
 const admin = require("firebase-admin");
 const port = process.env.PORT || 3000;
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 // middleWares
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
+    origin: [
+      "http://localhost:5173",
+      "https://tech-orbit-client.vercel.app"
+    ],
     credentials: true,
   })
 );
@@ -18,15 +22,17 @@ const stripe = require("stripe")(process.env.PAYMENT_GATEWAY_KEY);
 
 // Firebase Admin Key
 
-const serviceAccount = require("./techOrbit-firebase-admin-key.json");
+// const serviceAccount = require("./techOrbit-firebase-admin-key.json");
+const decoded = Buffer.from(process.env.FIREBASE_ADMIN_KEY, 'base64').toString('utf8')
+const serviceAccount = JSON.parse(decoded);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const { database } = require("firebase-admin");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.ot8ggjo.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+console.log(uri)
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -40,7 +46,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
     const dataBase = client.db("TechOrbitDB");
     const userCollection = dataBase.collection("users");
     const productCollections = dataBase.collection("products");
@@ -54,7 +60,7 @@ async function run() {
     const VerifyFBToken = async (req, res, next) => {
       const authHeader = req?.headers.authorization;
       if (!authHeader) {
-        return res.status(401).send({ message: "unauthorized access" });
+        return res.status(401).send({ message: "unauthorized access" }); 
       }
 
       const Token = authHeader.split(" ")[1];
@@ -73,7 +79,6 @@ async function run() {
       }
     };
 
-    // 🛡️ verifyParamsEmail.js
     const verifyParamsEmail = async (req, res, next) => {
       try {
         if (req.params.email !== req.decoded?.email) {
@@ -386,7 +391,8 @@ async function run() {
 
         res.send({ total, products });
       } catch (error) {
-        console.error(error);
+        // console.error(error);
+        console.log(uri)
         res
           .status(500)
           .send({ success: false, message: "Failed to fetch products" });
@@ -1325,10 +1331,10 @@ async function run() {
     });
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();

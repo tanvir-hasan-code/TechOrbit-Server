@@ -1,3 +1,4 @@
 node_modules
 .env
 techOrbit-firebase-admin-key.json
+.vercel
