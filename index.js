@@ -392,7 +392,7 @@ async function run() {
         res.send({ total, products });
       } catch (error) {
         // console.error(error);
-        console.log(uri)
+        // console.log(uri)
         res
           .status(500)
           .send({ success: false, message: "Failed to fetch products" });
