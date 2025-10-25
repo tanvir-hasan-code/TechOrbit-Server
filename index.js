@@ -11,7 +11,7 @@ app.use(
   cors({
     origin: [
       "http://localhost:5173",
-      "https://tech-orbit-client.vercel.app"
+      "https://techorbit-0.web.app"
     ],
     credentials: true,
   })
